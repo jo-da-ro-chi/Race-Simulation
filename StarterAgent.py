@@ -14,23 +14,30 @@ finish
 
 
 class StarterAgent(Agent):
-    class UserInterfaceBehav(CyclicBehaviour):
+    class UserInterfaceBehaviour(CyclicBehaviour):
+        def __init__(self):
+            super().__init__()
+            self.track = []
+            self.finish = True
+            self.processingInput = False
+            self.raceName = ""
+
         async def run(self):
-            print("RecvBehav running")
-            msg = await self.receive(timeout=180)  # wait for a message for 10 seconds
+            print(f'{self.__class__.__name__}: running')
+            msg = await self.receive(timeout=180)  # wait for a message for 180 seconds
             if msg:
                 reply = msg.make_reply()
-
                 # Parsing the message
-                parsedMsg = msg.body.lower().split(" ")
-                if parsedMsg[0] == "start" and self.finish:
+                parsed_msg = msg.body.lower().split(" ")
+                if parsed_msg[0] == "start" and self.finish:
+                    print("started new race")
                     # zacznij nowy wątek dla tego użytkownika - w praktyce dodaj do słownika nowy
-                    self.raceName = " ".join(parsedMsg[1:])
+                    self.raceName = " ".join(parsed_msg[1:])
                     self.processingInput = True
                     self.finish = False
                     reply.body = "Define race {}. Waiting for track parameters".format(self.raceName)
 
-                elif parsedMsg[0] == "finish" and self.processingInput:
+                elif parsed_msg[0] == "finish" and self.processingInput:
                     if len(self.track):
                         # TODO poinformuj/zacznij EnvironmentAgent i przekaz parametry, czekaj az sie zakonczy
                         reply.body = "The race {} has started, please wait for result!".format(self.raceName)
@@ -40,32 +47,31 @@ class StarterAgent(Agent):
                         self.processingInput = False
 
                 elif self.processingInput and not self.finish:
-                    length, maxvelocity = None, None
+                    length, max_velocity = None, None
                     try:
                         # sprawdz czy to 2 liczby (zmiennoprzecinkowe)
-                        length = float(parsedMsg[0])
-                        maxvelocity = float(parsedMsg[1])
+                        length = float(parsed_msg[0])
+                        maxvelocity = float(parsed_msg[1])
                         self.track.append((length, maxvelocity))
                         reply.body = "Acknowledged. Waiting for next parameters!"
                     except ValueError:
                         # jesli nie - wiadomosc o bledzie
                         reply.body = "Wrong track's parameters format. Insert <float> <float> numbers"
                 else:
-                    reply.body =\
-                        self.kill()
+                    reply.body = helloMessage + helpMessage
+
+                await self.send(reply)
 
         async def on_end(self):
+            print(f'{self.__class__.__name__}: running')
             await self.agent.stop()
 
         async def on_start(self):
-            self.raceName = ""
-            self.processingInput = False
-            self.finish = True
-            self.track = []
+            print(f'{self.__class__.__name__}: running')
 
     async def setup(self):
-        print("StarterAgent: Beginning UserInterfaceBehav")
-        self.add_behaviour(self.UserInterfaceBehav())
+        print(f'{self.__class__.__name__}: running')
+        self.add_behaviour(self.UserInterfaceBehaviour())
 
         # Constructor
         # def __init__(self, msg):
