@@ -1,11 +1,11 @@
 import time
-from StarterAgent import StarterAgent
+from EnvironmentAgent import EnvironmentAgent
 
 if __name__ == "__main__":
 
     agents = []
-    agents.append(StarterAgent("environ@blabber.im", "123456"))
-    agents.append(StarterAgent("starter@blabber.im", "123456"))
+    agents.append(EnvironmentAgent("environ@blabber.im", "123456"))
+    # agents.append(EnvironmentAgent("starter@blabber.im", "123456"))
 
     for agent in agents:
         agent.start()
