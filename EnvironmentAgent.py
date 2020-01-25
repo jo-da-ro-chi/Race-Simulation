@@ -17,6 +17,7 @@ finish"""
 
 STARTING = "STARTING"
 COLLECTING_PARAMS = "COLLECTING_PARAMS"
+SUBSCRIBING_TO_DRIVER = "SUBSCRIBING_TO_DRIVER"
 BROADCASTING_RACE = "BROADCASTING_RACE"
 RACING = "RACING"
 FINISHING = "FINISHING"
@@ -47,8 +48,8 @@ class Starting(State):
         if parsed_msg[0] == "start" and len(parsed_msg) != 1:
             print(f'{self.__class__.__name__}: starting new race!')
 
-            self.agent.raceName = " ".join(parsed_msg[1:])
-            reply.body = "Race '{}' defined. Waiting for track parameters".format(self.agent.raceName)
+            self.agent.race_name = " ".join(parsed_msg[1:])
+            reply.body = "Race '{}' defined. Waiting for track parameters".format(self.agent.race_name)
             next_state = COLLECTING_PARAMS
         else:
             reply.body = startHelpMessage
@@ -86,7 +87,7 @@ class CollectingParams(State):
             print(f'{self.__class__.__name__}: finishing!')
 
             reply.body = "Finished passing parameters! Broadcasting race..."
-            next_state = BROADCASTING_RACE
+            next_state = SUBSCRIBING_TO_DRIVER
         else:
             reply.body = paramsHelpMessage
             next_state = COLLECTING_PARAMS
@@ -96,34 +97,49 @@ class CollectingParams(State):
         self.set_next_state(next_state)
 
 
+class SubscribingToDrivers(State):
+    def on_available(self, jid, stanza):
+
+        print("[{}] Agent {} is available.".format(self.agent.name, jid.split("@")[0]))
+
+    def on_subscribed(self, jid):
+        print("[{}] Agent {} has accepted the subscription.".format(self.agent.name, jid.split("@")[0]))
+        print("[{}] Contacts List: {}".format(self.agent.name, self.agent.presence.get_contacts()))
+
+    def on_subscribe(self, jid):
+        print("[{}] Agent {} asked for subscription. Let's aprove it.".format(self.agent.name, jid.split("@")[0]))
+        self.presence.approve(jid)
+
+    async def run(self):
+        print(f'{self.__class__.__name__}: running')
+        self.presence.on_subscribe = self.on_subscribe
+        self.presence.on_subscribed = self.on_subscribed
+        self.presence.on_available = self.on_available
+        self.presence.set_available()
+        for jid in self.agent.drivers_jids:
+            self.presence.subscribe(jid)
+
+        self.set_next_state(BROADCASTING_RACE)
+
+
 class BroadcastingRace(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
 
+        print(self.agent.presence.get_contacts())
+
+        for driver in self.agent.presence.get_contacts():
+            print(driver)
+            msg = Message(to=driver)
+            msg.body = f'racename {self.agent.race_name}'
+
 
 class EnvironmentAgent(Agent):
-    def __init__(self, jid, password):
+    def __init__(self, jid, password, drivers_jids):
         super().__init__(jid, password)
         self.track = []
-        self.raceName = ""
-
-    # class EnvironmentBehavior(CyclicBehaviour):
-    #     def __init__(self):
-    #         super().__init__()
-    #         self.track = []
-    #         self.finish = True
-    #         self.processingInput = False
-    #         self.raceName = ""
-    #
-    #     async def run(self):
-    #         pass
-    #
-    #     async def on_end(self):
-    #         print(f'{self.__class__.__name__}: running')
-    #         await self.agent.stop()
-    #
-    #     async def on_start(self):
-    #         print(f'{self.__class__.__name__}: running')
+        self.race_name = ""
+        self.drivers_jids = drivers_jids
 
     async def setup(self):
         print(f'{self.__class__.__name__}: running')
@@ -131,92 +147,13 @@ class EnvironmentAgent(Agent):
 
         env_behav.add_state(name=STARTING, state=Starting(), initial=True)
         env_behav.add_state(name=COLLECTING_PARAMS, state=CollectingParams())
+        env_behav.add_state(name=SUBSCRIBING_TO_DRIVER, state=SubscribingToDrivers())
         env_behav.add_state(name=BROADCASTING_RACE, state=BroadcastingRace())
-        # env_behav.add_state(name=STARTING, state=Starting())
-        # env_behav.add_state(name=STARTING, state=Starting())
 
         env_behav.add_transition(source=STARTING, dest=STARTING)
         env_behav.add_transition(source=STARTING, dest=COLLECTING_PARAMS)
         env_behav.add_transition(source=COLLECTING_PARAMS, dest=COLLECTING_PARAMS)
-        env_behav.add_transition(source=COLLECTING_PARAMS, dest=BROADCASTING_RACE)
+        env_behav.add_transition(source=COLLECTING_PARAMS, dest=SUBSCRIBING_TO_DRIVER)
+        env_behav.add_transition(source=SUBSCRIBING_TO_DRIVER, dest=BROADCASTING_RACE)
 
         self.add_behaviour(env_behav)
-
-        # Constructor
-        # def __init__(self, msg):
-        #     super().__init__()
-        #     self.reply_template = msg.make_reply()
-        #     self.first_message = msg
-        #     self.jobs = []
-        #
-        # async def on_start(self):
-        #     self.reply_template.body = helloMessage
-        #     await self.send(self.reply_template)
-        #
-        # async def run(self):
-        #     print(f'{self.__class__.__name__}: running')
-        #     request = await self.receive(timeout=360)
-        #     print(f'{self.__class__.__name__}: received message {request}')
-        #     if request and "finish" not in request.body:
-        #         if ";" in request.body:
-        #             self.reply_template.body = "Acknowledged. I'm ready for further instructions."
-        #             await self.send(self.reply_template)
-        #
-        #             for job, address in addressBook.items():
-        #                 t = Template(metadata={'request_id': uuid.uuid4().hex})  # sender=address,
-        #                 print(f'{self.__class__.__name__}: creating Query with id {t.metadata["request_id"]}')
-        #                 self.jobs.append(QuerryForInfoBehaviour(request.body, address))
-        #                 self.agent.add_behaviour(self.jobs[-1], t)
-        #         else:
-        #             self.reply_template.body = "The pattern is wrong. Use: <topic>; <optional: keywords>"
-        #             await self.send(self.reply_template)
-        #     else:
-        #         self.kill()
-        #
-        # async def on_end(self):
-        #     self.reply_template.body = finishMessage.format(await self.compile_answer())
-        #     await self.send(self.reply_template)
-        #
-        # async def compile_answer(self):
-        #     tries = 3
-        #     while tries > 0:
-        #         finished = all([beh.is_done() for beh in self.jobs])
-        #         print([beh.is_done() for beh in self.jobs])
-        #         if finished:
-        #             break
-        #         self.reply_template.body = f"Collecting necessary information... {tries}"
-        #         await self.send(self.reply_template)
-        #         time.sleep(5)
-        #         tries -= 1
-        #     resultsFromBehs = [beh.result for beh in self.jobs if beh.is_done() and not beh.error]
-        #     return "\n---\n".join(resultsFromBehs)
-
-
-
-
-
-
-
-
-
-
-        # elif parsed_msg[0] == "finish" and self.processingInput:
-        #     if len(self.track):
-        #         # TODO poinformuj/zacznij EnvironmentAgent i przekaz parametry, czekaj az sie zakonczy
-        #         reply.body = "The race {} has started, please wait for result!".format(self.raceName)
-        #     else:
-        #         # zwroc wiadomosc bledu - proba startu wyscigu z pustym torem
-        #         reply.body = "Wrong track's parameters format. Insert <float> <float> numbers"
-        #         self.processingInput = False
-        #
-        # elif self.processingInput and not self.finish:
-        #     length, max_velocity = None, None
-        #     try:
-        #         # sprawdz czy to 2 liczby (zmiennoprzecinkowe)
-        #         length = float(parsed_msg[0])
-        #         maxvelocity = float(parsed_msg[1])
-        #         self.track.append((length, maxvelocity))
-        #         reply.body = "Acknowledged. Waiting for next parameters!"
-        #     except ValueError:
-        #         # jesli nie - wiadomosc o bledzie
-        #         reply.body = "Wrong track's parameters format. Insert <float> <float> numbers"

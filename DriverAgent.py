@@ -26,9 +26,16 @@ class DriverBehaviour(FSMBehaviour):
         print("[{}] Contacts List: {}".format(self.agent.name, self.agent.presence.get_contacts()))
 
     def on_subscribe(self, jid):
-        print("[{}] Agent {} asked for subscription. Let's approve it.".format(self.agent.name, jid.split("@")[0]))
+        print("[{}] Agent {} asked for subscription. Let's aprove it.".format(self.agent.name, jid.split("@")[0]))
         self.presence.approve(jid)
         self.presence.subscribe(jid)
+
+    async def run(self):
+        self.presence.set_available()
+
+        self.presence.on_subscribe = self.on_subscribe
+        self.presence.on_subscribed = self.on_subscribed
+        self.presence.on_available = self.on_available
 
 
 class DesireToRaceState(State):
@@ -42,7 +49,7 @@ class DesireToRaceState(State):
             if parsed_msg[0] == "racename":
                 print("Desire to participate in race!")
                 self.agent.race_name = " ".join(parsed_msg[1:])
-                self.agent.desire = (random < (self.agent.params_map["desire"] or 0))
+                self.agent.desire = (random() < (self.agent.params_map["desire"] or 0))
                 reply.body = "{}".format(self.agent.race_name)
                 print("Sent desire to participate in {}!".format(self.agent.race_name))
                 await self.send(reply)
