@@ -7,20 +7,20 @@ if __name__ == "__main__":
     drivers_jids = []
     driver_agents = []
 
-    for i in range(1, 3):
+    for i in range(1, 9):
         drivers_jids.append(f'car{i}_sag2020@blabber.im')
 
     for jid in drivers_jids:
         print(jid)
-        driver_agents.append(DriverAgent(jid, "123456", {"stubbornness": 0.8, "desire": 0.95, "courageous": 0.84}))
+        driver_agents.append(DriverAgent(jid, "123456", {"stubbornness": 0.8, "desire": 0.35, "courageous": 0.84}))
 
-    env_agent = EnvironmentAgent("environ@blabber.im", "123456", drivers_jids)
+    env_agent = EnvironmentAgent("env2020@blabber.im", "123456", drivers_jids)
 
     port = 50000
     for agent in driver_agents:
         agent.start()
         port = port + 1
-        agent.web.start(hostname="127.0.0.1", port=str(port))
+        # agent.web.start(hostname="127.0.0.1", port=str(port))
 
     env_agent.start()
     env_agent.web.start(hostname="127.0.0.1", port="60000")

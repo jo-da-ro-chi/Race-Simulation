@@ -1,3 +1,4 @@
+import asyncio
 import time
 from spade.agent import Agent
 from spade.behaviour import CyclicBehaviour, OneShotBehaviour, FSMBehaviour, State
@@ -19,8 +20,11 @@ STARTING = "STARTING"
 COLLECTING_PARAMS = "COLLECTING_PARAMS"
 SUBSCRIBING_TO_DRIVER = "SUBSCRIBING_TO_DRIVER"
 BROADCASTING_RACE = "BROADCASTING_RACE"
+CHOOSING_PARTICIPANTS = "CHOOSING_PARTICIPANTS"
+STARTING_RACE = "STARTING_RACE"
 RACING = "RACING"
 FINISHING = "FINISHING"
+MAX_DRIVERS = 5
 
 
 class EnvironmentBehavior(FSMBehaviour):
@@ -38,9 +42,9 @@ class Starting(State):
 
         msg = await self.receive(timeout=180)  # wait for a message for 180 seconds
 
-        if not msg:
-            print(f'{self.__class__.__name__}: received no message, terminating!')
-            return
+        # if not msg:
+        #     print(f'{self.__class__.__name__}: received no message, terminating!')
+        #     return
 
         reply = msg.make_reply()
         parsed_msg = msg.body.lower().split(" ")
@@ -119,6 +123,7 @@ class SubscribingToDrivers(State):
         for jid in self.agent.drivers_jids:
             self.presence.subscribe(jid)
 
+        await asyncio.sleep(10),
         self.set_next_state(BROADCASTING_RACE)
 
 
@@ -130,9 +135,39 @@ class BroadcastingRace(State):
 
         for driver in self.agent.presence.get_contacts():
             print(driver)
-            msg = Message(to=driver)
+            msg = Message(to=str(driver))
             msg.body = f'racename {self.agent.race_name}'
+            await self.send(msg)
 
+        self.set_next_state(CHOOSING_PARTICIPANTS)
+
+
+class ChoosingParticipants(State):
+    async def run(self):
+        print(f'{self.__class__.__name__}: running')
+
+        msg = await self.receive(timeout=5)  # wait for a response
+
+        if msg:
+            reply = msg.make_reply()
+            parsed_msg = msg.body.lower().split(" ")
+            if len(parsed_msg) == 1 and parsed_msg[0] == self.agent.race_name:
+                self.agent.choosen_jids.append(msg.sender)
+
+            print(self.agent.choosen_jids)
+
+            if len(self.agent.choosen_jids) < MAX_DRIVERS:
+                self.set_next_state(CHOOSING_PARTICIPANTS)
+            else:
+                self.set_next_state(STARTING_RACE)
+        else:
+            self.set_next_state(STARTING_RACE)
+
+
+class StartingRace(State):
+    async def run(self):
+        print(f'{self.__class__.__name__}: running')
+        # TODO confirm participation in race
 
 class EnvironmentAgent(Agent):
     def __init__(self, jid, password, drivers_jids):
@@ -140,6 +175,7 @@ class EnvironmentAgent(Agent):
         self.track = []
         self.race_name = ""
         self.drivers_jids = drivers_jids
+        self.choosen_jids = []
 
     async def setup(self):
         print(f'{self.__class__.__name__}: running')
@@ -149,11 +185,16 @@ class EnvironmentAgent(Agent):
         env_behav.add_state(name=COLLECTING_PARAMS, state=CollectingParams())
         env_behav.add_state(name=SUBSCRIBING_TO_DRIVER, state=SubscribingToDrivers())
         env_behav.add_state(name=BROADCASTING_RACE, state=BroadcastingRace())
+        env_behav.add_state(name=CHOOSING_PARTICIPANTS, state=ChoosingParticipants())
+        env_behav.add_state(name=STARTING_RACE, state=StartingRace())
 
         env_behav.add_transition(source=STARTING, dest=STARTING)
         env_behav.add_transition(source=STARTING, dest=COLLECTING_PARAMS)
         env_behav.add_transition(source=COLLECTING_PARAMS, dest=COLLECTING_PARAMS)
         env_behav.add_transition(source=COLLECTING_PARAMS, dest=SUBSCRIBING_TO_DRIVER)
         env_behav.add_transition(source=SUBSCRIBING_TO_DRIVER, dest=BROADCASTING_RACE)
+        env_behav.add_transition(source=BROADCASTING_RACE, dest=CHOOSING_PARTICIPANTS)
+        env_behav.add_transition(source=CHOOSING_PARTICIPANTS, dest=CHOOSING_PARTICIPANTS)
+        env_behav.add_transition(source=CHOOSING_PARTICIPANTS, dest=STARTING_RACE)
 
         self.add_behaviour(env_behav)

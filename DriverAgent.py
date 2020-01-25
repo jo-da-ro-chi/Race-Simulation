@@ -8,6 +8,7 @@ from spade.template import Template
 STATE_DESIRE = "STATE_DESIRE"
 STATE_REGISTER = "STATE_REGISTER"
 STATE_WAIT_START = "STATE_WAIT_START"
+ENDING = "ENDING"
 
 
 class DriverBehaviour(FSMBehaviour):
@@ -15,7 +16,7 @@ class DriverBehaviour(FSMBehaviour):
         print(f'{self.__class__.__name__}: running')
 
     async def on_end(self):
-        print(f'{self.__class__.__name__}: running')
+        print(f'{self.__class__.__name__}: ending')
         await self.agent.stop()
 
     def on_available(self, jid, stanza):
@@ -26,7 +27,7 @@ class DriverBehaviour(FSMBehaviour):
         print("[{}] Contacts List: {}".format(self.agent.name, self.agent.presence.get_contacts()))
 
     def on_subscribe(self, jid):
-        print("[{}] Agent {} asked for subscription. Let's aprove it.".format(self.agent.name, jid.split("@")[0]))
+        print("[{}] Agent {} asked for subscription. Let's approve it.".format(self.agent.name, jid.split("@")[0]))
         self.presence.approve(jid)
         self.presence.subscribe(jid)
 
@@ -50,10 +51,15 @@ class DesireToRaceState(State):
                 print("Desire to participate in race!")
                 self.agent.race_name = " ".join(parsed_msg[1:])
                 self.agent.desire = (random() < (self.agent.params_map["desire"] or 0))
-                reply.body = "{}".format(self.agent.race_name)
-                print("Sent desire to participate in {}!".format(self.agent.race_name))
-                await self.send(reply)
-                self.set_next_state(STATE_REGISTER)
+
+                if self.agent.desire:
+                    print("Sent desire to participate in {}!".format(self.agent.race_name))
+                    reply.body = "{}".format(self.agent.race_name)
+                    await self.send(reply)
+
+                    self.set_next_state(STATE_REGISTER)
+                else:
+                    self.set_next_state(ENDING)
 
 
 class RegisterToRaceState(State):
@@ -81,6 +87,11 @@ class WaitForStart(State):
             pass
 
 
+class Ending(State):
+    async def run(self):
+        print(f'{self.__class__.__name__}: running')
+
+
 class DriverAgent(Agent):
     def __init__(self, jid, password, params_map):
         super().__init__(jid, password)
@@ -94,9 +105,9 @@ class DriverAgent(Agent):
         fsm.add_state(name=STATE_DESIRE, state=DesireToRaceState(), initial=True)
         fsm.add_state(name=STATE_REGISTER, state=RegisterToRaceState())
         fsm.add_state(name=STATE_WAIT_START, state=WaitForStart())
+        fsm.add_state(name=ENDING, state=Ending())
+
         fsm.add_transition(source=STATE_DESIRE, dest=STATE_REGISTER)
+        fsm.add_transition(source=STATE_DESIRE, dest=ENDING)
         fsm.add_transition(source=STATE_REGISTER, dest=STATE_WAIT_START)
         self.add_behaviour(fsm)
-
-
-
