@@ -4,7 +4,7 @@ from spade.agent import Agent
 from spade.behaviour import CyclicBehaviour, OneShotBehaviour, FSMBehaviour, State
 from spade.message import Message
 
-from utils import parse_float
+from utils import parse_float, parse_int
 from Driver import Driver
 
 helloMessage = """Race Simulator Agent reporting for duty!"""
@@ -93,6 +93,13 @@ class CollectingParams(State):
 
             reply.body = "Finished passing parameters! Broadcasting race..."
             next_state = SUBSCRIBING_TO_DRIVER
+        elif len(parsed_msg) == 2 and parsed_msg[0] == 'laps' and parse_int(parsed_msg[1]):
+            print(f'{self.__class__.__name__}: got laps number!')
+
+            self.agent.laps = int(parsed_msg[1])
+
+            reply.body = "Got Your laps number: laps='{}'".format(self.agent.laps)
+            next_state = COLLECTING_PARAMS
         else:
             reply.body = paramsHelpMessage
             next_state = COLLECTING_PARAMS
@@ -208,6 +215,7 @@ class EnvironmentAgent(Agent):
     def __init__(self, jid, password, drivers_jids):
         super().__init__(jid, password)
         self.track = []
+        self.laps = 1
         self.race_name = ""
         self.drivers_jids = drivers_jids
         self.participants = []
