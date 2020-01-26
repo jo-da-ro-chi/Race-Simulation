@@ -12,7 +12,7 @@ if __name__ == "__main__":
 
     for jid in drivers_jids:
         print(jid)
-        driver_agents.append(DriverAgent(jid, "123456", {"skill": 0.8, "desire": 1.0, "courageous": 0.84}))
+        driver_agents.append(DriverAgent(jid, "123456", {"skill": 0.8, "desire": 1.0, "courageous": 0.64}))
 
     env_agent = EnvironmentAgent("environ@blabber.im", "123456", drivers_jids)
 

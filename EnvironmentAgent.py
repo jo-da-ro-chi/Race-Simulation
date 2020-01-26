@@ -1,11 +1,13 @@
 import asyncio
+from random import random
 from time import time
+
 from spade.agent import Agent
-from spade.behaviour import CyclicBehaviour, OneShotBehaviour, FSMBehaviour, State
+from spade.behaviour import FSMBehaviour, State
 from spade.message import Message
 
-from utils import parse_float, parse_int
 from Driver import Driver
+from utils import parse_float, parse_int
 
 helloMessage = """Race Simulator Agent reporting for duty!"""
 startHelpMessage = """To begin a race type:
@@ -87,6 +89,7 @@ class CollectingParams(State):
             self.agent.track.append((length, max_vel))
             reply.body = "Got Your params: length='{}', max_vel='{}'".format(self.agent.track[-1][0],
                                                                              self.agent.track[-1][1])
+            self.agent.track_length += length
             next_state = COLLECTING_PARAMS
         elif len(parsed_msg) == 1 and parsed_msg[0] == 'finish':
             print(f'{self.__class__.__name__}: finishing!')
@@ -200,7 +203,18 @@ class Racing(State):
 
         if time() - self.agent.last_update_time > 1:
             for driver in self.agent.participants:
+                velocity_exceeding = driver.velocity - self.agent.track[self.agent.position_to_segment(driver)][1]
+                if velocity_exceeding > 0:
+                    crash_occur = random() < velocity_exceeding / (5 + velocity_exceeding)
+                    if crash_occur:
+                        driver.velocity = 0
+                        driver.acceleration = 0
+                        message = Message(to=str(driver.jid))
+                        message.body = "accident"
+                        await self.send(message)
+
                 driver.move(time() - self.agent.last_update_time)
+                driver.update_laps(self.agent.track_length)
                 # TODO add crash evaluation
                 message = Message(to=str(driver.jid))
                 message.body = f'status {driver.position} {driver.velocity} {driver.acceleration} {driver.laps}'
@@ -215,6 +229,7 @@ class EnvironmentAgent(Agent):
     def __init__(self, jid, password, drivers_jids):
         super().__init__(jid, password)
         self.track = []
+        self.track_length = 0
         self.laps = 1
         self.race_name = ""
         self.drivers_jids = drivers_jids
@@ -245,3 +260,10 @@ class EnvironmentAgent(Agent):
         env_behav.add_transition(source=RACING, dest=RACING)
 
         self.add_behaviour(env_behav)
+
+    def position_to_segment(self, driver):
+        distance = 0
+        for i, segment in enumerate(self.track):
+            distance += segment[0]
+            if distance > (driver.position % self.track_length):
+                return i

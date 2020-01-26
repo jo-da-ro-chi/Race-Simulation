@@ -77,7 +77,7 @@ class GatherTrackInfoState(State):
                 for segment in parsed_msg[2:]:
                     self.agent.track.append(Segment(float(segment)))
                     self.agent.track[-1].max_velocity = 5 * (self.agent.params_map["courageous"])
-
+                    self.agent.track_length += float(segment)
                 self.set_next_state(STATE_RACING)
         else:
             self.set_next_state(STATE_ENDING)
@@ -112,6 +112,7 @@ class RacingState(State):
                 self.agent.driver.laps = int(parsed_msg[4])
 
             if parsed_msg[0] == "accident":
+                print("accident occurred!")
                 current_segment = self.agent.position_to_segment()
 
                 self.agent.track[current_segment].crash_last = True
@@ -132,6 +133,7 @@ class DriverAgent(Agent):
         self.desire = False
         self.params_map = params_map
         self.track = []
+        self.track_length = 0
         self.driver = Driver(jid)
         self.environment_jid = ""
 
@@ -153,7 +155,7 @@ class DriverAgent(Agent):
         distance = 0
         for i, segment in enumerate(self.track):
             distance += segment.length
-            if distance > self.driver.position:
+            if distance > (self.driver.position % self.track_length):
                 return i
 
     def track_update(self):
