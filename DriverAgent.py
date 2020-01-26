@@ -1,14 +1,15 @@
 import time
 from spade.agent import Agent
 from random import random
-from spade.behaviour import CyclicBehaviour, OneShotBehaviour, FSMBehaviour, State
+from spade.behaviour import FSMBehaviour, State
+from Segment import Segment
 from spade.message import Message
 from spade.template import Template
 
 STATE_DESIRE = "STATE_DESIRE"
-STATE_REGISTER = "STATE_REGISTER"
-STATE_WAIT_START = "STATE_WAIT_START"
-ENDING = "ENDING"
+STATE_GATHER_INFO = "STATE_GATHER_INFO"
+STATE_RACING = "STATE_RACING"
+STATE_ENDING = "STATE_ENDING"
 
 
 class DriverBehaviour(FSMBehaviour):
@@ -42,47 +43,48 @@ class DriverBehaviour(FSMBehaviour):
 class DesireToRaceState(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
-        msg = await self.receive(timeout=180)  # wait for a message for 180 seconds from EnvironmentAgent
+
+        msg = await self.receive(timeout=10)
+
         if msg:
-            print("I received message!")
             reply = msg.make_reply()
             parsed_msg = msg.body.lower().split(" ")
             if parsed_msg[0] == "racename":
-                print("Desire to participate in race!")
                 self.agent.race_name = " ".join(parsed_msg[1:])
                 self.agent.desire = (random() < (self.agent.params_map["desire"] or 0))
 
                 if self.agent.desire:
-                    print("Sent desire to participate in {}!".format(self.agent.race_name))
                     reply.body = "{}".format(self.agent.race_name)
                     await self.send(reply)
 
-                    self.set_next_state(STATE_REGISTER)
+                    self.set_next_state(STATE_GATHER_INFO)
                 else:
-                    self.set_next_state(ENDING)
+                    self.set_next_state(STATE_ENDING)
 
 
-class RegisterToRaceState(State):
+class GatherTrackInfoState(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
-        msg = await self.receive(timeout=180)  # wait for a message for 180 seconds from EnvironmentAgent
+
+        msg = await self.receive(timeout=10)
+
         if msg:
-            print("I received message!")
-            reply = msg.make_reply()
             parsed_msg = msg.body.lower().split(" ")
-            if parsed_msg[0] == self.agent.race_name:
-                print("Got answer for desire!")
-                if parsed_msg[1] == "yes" and self.agent.desire:
-                    print("Registered!")
-                    self.agent.registered = True
-                    reply.body = "{}".format(self.agent.race_name)
-                    self.set_next_state(STATE_WAIT_START)
+            if parsed_msg[0] == "starting" and parsed_msg[1] == self.agent.race_name:
+                for segment in parsed_msg[2:]:
+                    self.agent.track.append(Segment(float(segment)))
+                    
+                self.set_next_state(STATE_RACING)
+        else:
+            self.set_next_state(STATE_ENDING)
 
 
-class WaitForStart(State):
+class RacingState(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
-        msg = await self.receive(timeout=180)  # wait for a message for 180 seconds from EnvironmentAgent
+
+        msg = await self.receive(timeout=10)
+
         if msg:
             pass
 
@@ -97,17 +99,17 @@ class DriverAgent(Agent):
         super().__init__(jid, password)
         self.race_name = ""
         self.desire = False
-        self.registered = False
         self.params_map = params_map
+        self.track = []
 
     async def setup(self):
         fsm = DriverBehaviour()
         fsm.add_state(name=STATE_DESIRE, state=DesireToRaceState(), initial=True)
-        fsm.add_state(name=STATE_REGISTER, state=RegisterToRaceState())
-        fsm.add_state(name=STATE_WAIT_START, state=WaitForStart())
-        fsm.add_state(name=ENDING, state=Ending())
+        fsm.add_state(name=STATE_GATHER_INFO, state=GatherTrackInfoState())
+        fsm.add_state(name=STATE_RACING, state=RacingState())
+        fsm.add_state(name=STATE_ENDING, state=Ending())
 
-        fsm.add_transition(source=STATE_DESIRE, dest=STATE_REGISTER)
-        fsm.add_transition(source=STATE_DESIRE, dest=ENDING)
-        fsm.add_transition(source=STATE_REGISTER, dest=STATE_WAIT_START)
+        fsm.add_transition(source=STATE_DESIRE, dest=STATE_GATHER_INFO)
+        fsm.add_transition(source=STATE_DESIRE, dest=STATE_ENDING)
+        fsm.add_transition(source=STATE_GATHER_INFO, dest=STATE_RACING)
         self.add_behaviour(fsm)
