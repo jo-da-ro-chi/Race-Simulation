@@ -1,5 +1,5 @@
 import asyncio
-import time
+from time import time
 from spade.agent import Agent
 from spade.behaviour import CyclicBehaviour, OneShotBehaviour, FSMBehaviour, State
 from spade.message import Message
@@ -43,9 +43,9 @@ class Starting(State):
 
         msg = await self.receive(timeout=180)  # wait for a message for 180 seconds
 
-        # if not msg:
-        #     print(f'{self.__class__.__name__}: received no message, terminating!')
-        #     return
+        if not msg:
+            print(f'{self.__class__.__name__}: received no message, terminating!')
+            return
 
         reply = msg.make_reply()
         parsed_msg = msg.body.lower().split(" ")
@@ -69,7 +69,7 @@ class CollectingParams(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
 
-        msg = await self.receive(timeout=20)  # wait for a message for 180 seconds
+        msg = await self.receive(timeout=30)  # wait for a message for 180 seconds
 
         if not msg:
             print(f'{self.__class__.__name__}: received no message, terminating!')
@@ -103,8 +103,7 @@ class CollectingParams(State):
 
 
 class SubscribingToDrivers(State):
-    def on_available(self, jid, stanza):
-
+    def on_available(self, jid):
         print("[{}] Agent {} is available.".format(self.agent.name, jid.split("@")[0]))
 
     def on_subscribed(self, jid):
@@ -132,8 +131,6 @@ class BroadcastingRace(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
 
-        print(self.agent.presence.get_contacts())
-
         for driver in self.agent.presence.get_contacts():
             print(driver)
             msg = Message(to=str(driver))
@@ -147,10 +144,9 @@ class ChoosingParticipants(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
 
-        msg = await self.receive(timeout=5)  # wait for a response
+        msg = await self.receive(timeout=5)
 
         if msg:
-            reply = msg.make_reply()
             parsed_msg = msg.body.lower().split(" ")
             if len(parsed_msg) == 1 and parsed_msg[0] == self.agent.race_name:
                 self.agent.participants.append(Driver(msg.sender))
@@ -184,7 +180,28 @@ class StartingRace(State):
 
 class Racing(State):
     async def run(self):
-        print(f'{self.__class__.__name__}: running')
+        # print(f'{self.__class__.__name__}: running')
+
+        msg = await self.receive(timeout=0.01)
+
+        if msg:
+            parsed_msg = msg.body.lower().split(" ")
+            if parsed_msg[0] == "acceleration":
+                for driver in self.agent.participants:
+                    if driver.jid == msg.sender:
+                        driver.acceleration = float(parsed_msg[1])
+
+        if time() - self.agent.last_update_time > 1:
+            for driver in self.agent.participants:
+                driver.move(time() - self.agent.last_update_time)
+                # TODO add crash evaluation
+                message = Message(to=str(driver.jid))
+                message.body = f'status {driver.position} {driver.velocity} {driver.acceleration} {driver.laps}'
+                await self.send(message)
+
+            self.agent.last_update_time = time()
+
+        self.set_next_state(RACING)
 
 
 class EnvironmentAgent(Agent):
@@ -194,6 +211,7 @@ class EnvironmentAgent(Agent):
         self.race_name = ""
         self.drivers_jids = drivers_jids
         self.participants = []
+        self.last_update_time = time()
 
     async def setup(self):
         print(f'{self.__class__.__name__}: running')
@@ -216,5 +234,6 @@ class EnvironmentAgent(Agent):
         env_behav.add_transition(source=CHOOSING_PARTICIPANTS, dest=CHOOSING_PARTICIPANTS)
         env_behav.add_transition(source=CHOOSING_PARTICIPANTS, dest=STARTING_RACE)
         env_behav.add_transition(source=STARTING_RACE, dest=RACING)
+        env_behav.add_transition(source=RACING, dest=RACING)
 
         self.add_behaviour(env_behav)
