@@ -5,6 +5,7 @@ from spade.behaviour import CyclicBehaviour, OneShotBehaviour, FSMBehaviour, Sta
 from spade.message import Message
 
 from utils import parse_float
+from Driver import Driver
 
 helloMessage = """Race Simulator Agent reporting for duty!"""
 startHelpMessage = """To begin a race type:
@@ -152,11 +153,11 @@ class ChoosingParticipants(State):
             reply = msg.make_reply()
             parsed_msg = msg.body.lower().split(" ")
             if len(parsed_msg) == 1 and parsed_msg[0] == self.agent.race_name:
-                self.agent.choosen_jids.append(msg.sender)
+                self.agent.participants.append(Driver(msg.sender))
 
-            print(self.agent.choosen_jids)
+            print(self.agent.participants)
 
-            if len(self.agent.choosen_jids) < MAX_DRIVERS:
+            if len(self.agent.participants) < MAX_DRIVERS:
                 self.set_next_state(CHOOSING_PARTICIPANTS)
             else:
                 self.set_next_state(STARTING_RACE)
@@ -167,7 +168,24 @@ class ChoosingParticipants(State):
 class StartingRace(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
-        # TODO confirm participation in race
+
+        message_body = f'starting {self.agent.race_name}'
+        for segment in self.agent.track:
+            message_body += f' {segment[0]}'
+
+        for driver in self.agent.participants:
+            print(driver)
+            msg = Message(to=str(driver.jid))
+            msg.body = message_body
+            await self.send(msg)
+
+        self.set_next_state(RACING)
+
+
+class Racing(State):
+    async def run(self):
+        print(f'{self.__class__.__name__}: running')
+
 
 class EnvironmentAgent(Agent):
     def __init__(self, jid, password, drivers_jids):
@@ -175,7 +193,7 @@ class EnvironmentAgent(Agent):
         self.track = []
         self.race_name = ""
         self.drivers_jids = drivers_jids
-        self.choosen_jids = []
+        self.participants = []
 
     async def setup(self):
         print(f'{self.__class__.__name__}: running')
@@ -187,6 +205,7 @@ class EnvironmentAgent(Agent):
         env_behav.add_state(name=BROADCASTING_RACE, state=BroadcastingRace())
         env_behav.add_state(name=CHOOSING_PARTICIPANTS, state=ChoosingParticipants())
         env_behav.add_state(name=STARTING_RACE, state=StartingRace())
+        env_behav.add_state(name=RACING, state=Racing())
 
         env_behav.add_transition(source=STARTING, dest=STARTING)
         env_behav.add_transition(source=STARTING, dest=COLLECTING_PARAMS)
@@ -196,5 +215,6 @@ class EnvironmentAgent(Agent):
         env_behav.add_transition(source=BROADCASTING_RACE, dest=CHOOSING_PARTICIPANTS)
         env_behav.add_transition(source=CHOOSING_PARTICIPANTS, dest=CHOOSING_PARTICIPANTS)
         env_behav.add_transition(source=CHOOSING_PARTICIPANTS, dest=STARTING_RACE)
+        env_behav.add_transition(source=STARTING_RACE, dest=RACING)
 
         self.add_behaviour(env_behav)
