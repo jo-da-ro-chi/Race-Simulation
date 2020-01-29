@@ -12,6 +12,7 @@ STATE_DESIRE = "STATE_DESIRE"
 STATE_GATHER_INFO = "STATE_GATHER_INFO"
 STATE_RACING = "STATE_RACING"
 STATE_ENDING = "STATE_ENDING"
+MAX_ACCELERATION = 10
 
 
 class DriverBehaviour(FSMBehaviour):
@@ -45,6 +46,7 @@ class DriverBehaviour(FSMBehaviour):
 class DesireToRaceState(State):
     async def run(self):
         print(f'{self.__class__.__name__}: running')
+        next_state = STATE_ENDING
 
         msg = await self.receive(timeout=180)
 
@@ -60,9 +62,9 @@ class DesireToRaceState(State):
                     self.agent.environment_jid = msg.sender
                     await self.send(reply)
 
-                    self.set_next_state(STATE_GATHER_INFO)
-                else:
-                    self.set_next_state(STATE_ENDING)
+                    next_state = STATE_GATHER_INFO
+
+        self.set_next_state(next_state)
 
 
 class GatherTrackInfoState(State):
@@ -85,26 +87,20 @@ class GatherTrackInfoState(State):
 
 class RacingState(State):
     async def run(self):
-        # print(f'{self.__class__.__name__}: running')
-
-        print(self.agent.driver)
-
-        new_acceleration = (1, -1)[self.agent.driver.velocity > self.agent.track[self.agent.position_to_segment()].max_velocity]
+        next_state = STATE_RACING
+        new_acceleration = min((self.agent.track[self.agent.position_to_segment()].max_velocity -
+                                self.agent.driver.velocity) *
+                               self.agent.params_map["courageous"], MAX_ACCELERATION)
         message = Message(to=str(self.agent.environment_jid))
-        message.body = "acceleration " + str(new_acceleration)  # TODO adjust acceleration calculation
+        message.body = "acceleration " + str(new_acceleration)
         await self.send(message)
-
-        # if self.agent.driver.velocity < self.agent.track[self.agent.position_to_segment()].max_velocity:  # TODO add crash impact
-        #     message = Message(to=str(self.agent.environment_jid))
-        #     message.body = "acceleration 1"  # TODO adjust acceleration calculation
-        #     await self.send(message)
 
         msg = await self.receive(timeout=5)
 
         if msg:
             parsed_msg = msg.body.lower().split(" ")
             if parsed_msg[0] == "status":
-                if self.agent.driver.laps != int(parsed_msg[4]):
+                if self.agent.driver.laps != float(parsed_msg[4]):
                     self.agent.track_update()
                 self.agent.driver.position = float(parsed_msg[1])
                 self.agent.driver.velocity = float(parsed_msg[2])
@@ -112,13 +108,19 @@ class RacingState(State):
                 self.agent.driver.laps = int(parsed_msg[4])
 
             if parsed_msg[0] == "accident":
-                print("accident occurred!")
+                print(f'{self.agent.jid} accident occurred!')
                 current_segment = self.agent.position_to_segment()
 
                 self.agent.track[current_segment].crash_last = True
                 self.agent.track[current_segment].crash_ever = True
 
-        self.set_next_state(STATE_RACING)
+            if parsed_msg[0] == "end":
+                print(self.agent.driver)
+                print(self.agent.params_map)
+                print(self.agent.track)
+                next_state = STATE_ENDING
+
+        self.set_next_state(next_state)
 
 
 class Ending(State):
@@ -148,6 +150,7 @@ class DriverAgent(Agent):
         fsm.add_transition(source=STATE_DESIRE, dest=STATE_ENDING)
         fsm.add_transition(source=STATE_GATHER_INFO, dest=STATE_RACING)
         fsm.add_transition(source=STATE_RACING, dest=STATE_RACING)
+        fsm.add_transition(source=STATE_RACING, dest=STATE_ENDING)
 
         self.add_behaviour(fsm)
 
@@ -163,7 +166,7 @@ class DriverAgent(Agent):
             if segment.crash_last:
                 segment.max_velocity *= self.params_map["courageous"]
             elif not segment.crash_last and segment.crash_ever:
-                segment.max_velocity *= (1 + self.params_map["courageous"])
+                segment.max_velocity *= (1 + 0.3 * self.params_map["courageous"])
             else:
-                segment.max_velocity *= (1 + 2 * self.params_map["courageous"])
+                segment.max_velocity *= (1 + 0.6 * self.params_map["courageous"])
             segment.crash_last = False

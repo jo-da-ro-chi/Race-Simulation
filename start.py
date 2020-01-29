@@ -1,4 +1,6 @@
 import time
+from random import random
+
 from EnvironmentAgent import EnvironmentAgent
 from DriverAgent import DriverAgent
 
@@ -7,12 +9,12 @@ if __name__ == "__main__":
     drivers_jids = []
     driver_agents = []
 
-    for i in range(1, 2):
+    for i in range(1, 12):
         drivers_jids.append(f'car{i}_sag2020@blabber.im')
 
     for jid in drivers_jids:
         print(jid)
-        driver_agents.append(DriverAgent(jid, "123456", {"skill": 0.8, "desire": 1.0, "courageous": 0.64}))
+        driver_agents.append(DriverAgent(jid, "123456", {"skill": random(), "desire": random(), "courageous": random()}))
 
     env_agent = EnvironmentAgent("environ@blabber.im", "123456", drivers_jids)
 
@@ -34,3 +36,11 @@ if __name__ == "__main__":
             env_agent.stop()
             break
     print("Agents finished")
+
+    counter = 0
+    for i in range(10000000):
+        a = random()
+        if a < random():
+            counter += 1
+
+    print(counter/10000000)

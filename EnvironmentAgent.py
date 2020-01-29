@@ -27,7 +27,7 @@ CHOOSING_PARTICIPANTS = "CHOOSING_PARTICIPANTS"
 STARTING_RACE = "STARTING_RACE"
 RACING = "RACING"
 FINISHING = "FINISHING"
-MAX_DRIVERS = 5
+MAX_DRIVERS = 8
 
 
 class EnvironmentBehavior(FSMBehaviour):
@@ -36,7 +36,7 @@ class EnvironmentBehavior(FSMBehaviour):
 
     async def on_end(self):
         print(f'{self.__class__.__name__}: ending.')
-        self.agent.kill()
+        await self.agent.stop()
 
 
 class Starting(State):
@@ -103,6 +103,16 @@ class CollectingParams(State):
 
             reply.body = "Got Your laps number: laps='{}'".format(self.agent.laps)
             next_state = COLLECTING_PARAMS
+        elif len(parsed_msg) == 1 and parsed_msg[0] == "default":
+            self.agent.track.append((50, 10))
+            self.agent.track.append((40, 15))
+            self.agent.track.append((30, 5))
+            self.agent.track.append((70, 20))
+            self.agent.track.append((10, 3))
+            self.agent.track_length = 200
+            self.agent.laps = 5
+            reply.body = "Finished passing parameters! Broadcasting race..."
+            next_state = SUBSCRIBING_TO_DRIVER
         else:
             reply.body = paramsHelpMessage
             next_state = COLLECTING_PARAMS
@@ -191,7 +201,7 @@ class StartingRace(State):
 class Racing(State):
     async def run(self):
         # print(f'{self.__class__.__name__}: running')
-
+        next_state = RACING
         msg = await self.receive(timeout=0.01)
 
         if msg:
@@ -200,8 +210,12 @@ class Racing(State):
                 for driver in self.agent.participants:
                     if driver.jid == msg.sender:
                         driver.acceleration = float(parsed_msg[1])
+                        self.agent.last_acceleration_time = time()
 
-        if time() - self.agent.last_update_time > 1:
+        if time() - self.agent.last_acceleration_time > 180:
+            next_state = FINISHING
+
+        if time() - self.agent.last_update_time > 0.2:
             for driver in self.agent.participants:
                 velocity_exceeding = driver.velocity - self.agent.track[self.agent.position_to_segment(driver)][1]
                 if velocity_exceeding > 0:
@@ -215,14 +229,30 @@ class Racing(State):
 
                 driver.move(time() - self.agent.last_update_time)
                 driver.update_laps(self.agent.track_length)
-                # TODO add crash evaluation
+
+                if driver.laps == self.agent.laps:
+                    message = Message(to=str(driver.jid))
+                    message.body = "end"
+                    await self.send(message)
+                    if driver not in self.agent.finishers:
+                        self.agent.finishers.append(driver)
+
                 message = Message(to=str(driver.jid))
                 message.body = f'status {driver.position} {driver.velocity} {driver.acceleration} {driver.laps}'
                 await self.send(message)
 
+            if len(self.agent.participants) == len(self.agent.finishers):
+                next_state = FINISHING
+
             self.agent.last_update_time = time()
 
-        self.set_next_state(RACING)
+        self.set_next_state(next_state)
+
+
+class Finishing(State):
+    async def run(self):
+        print(f'{self.__class__.__name__}: running')
+        print(self.agent.finishers)
 
 
 class EnvironmentAgent(Agent):
@@ -234,7 +264,9 @@ class EnvironmentAgent(Agent):
         self.race_name = ""
         self.drivers_jids = drivers_jids
         self.participants = []
+        self.finishers = []
         self.last_update_time = time()
+        self.last_acceleration_time = time()
 
     async def setup(self):
         print(f'{self.__class__.__name__}: running')
@@ -247,6 +279,7 @@ class EnvironmentAgent(Agent):
         env_behav.add_state(name=CHOOSING_PARTICIPANTS, state=ChoosingParticipants())
         env_behav.add_state(name=STARTING_RACE, state=StartingRace())
         env_behav.add_state(name=RACING, state=Racing())
+        env_behav.add_state(name=FINISHING, state=Finishing())
 
         env_behav.add_transition(source=STARTING, dest=STARTING)
         env_behav.add_transition(source=STARTING, dest=COLLECTING_PARAMS)
@@ -258,6 +291,7 @@ class EnvironmentAgent(Agent):
         env_behav.add_transition(source=CHOOSING_PARTICIPANTS, dest=STARTING_RACE)
         env_behav.add_transition(source=STARTING_RACE, dest=RACING)
         env_behav.add_transition(source=RACING, dest=RACING)
+        env_behav.add_transition(source=RACING, dest=FINISHING)
 
         self.add_behaviour(env_behav)
 
